@@ -31,7 +31,6 @@ int motor1_speed = 0;
 int motor2_speed = 0;
 
 WebSocketsServer webSocket = WebSocketsServer(81);
-#define USE_SERIAL Serial1
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 {
@@ -39,19 +38,16 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   switch (type)
   {
   case WStype_DISCONNECTED:
-    USE_SERIAL.printf("[%u] Disconnected!\n", num);
+    Serial.printf("[%u] Disconnected!\n", num);
     break;
   case WStype_CONNECTED:
   {
     IPAddress ip = webSocket.remoteIP(num);
-    USE_SERIAL.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
-
-    // send message to client
-    webSocket.sendTXT(num, "Connected");
+    Serial.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
   }
   break;
   case WStype_TEXT:
-    USE_SERIAL.printf("[%u] get Text: %s\n", num, payload);
+    Serial.printf("[%u] get Text: %s\n", num, payload);
 
     // send message to client
     // webSocket.sendTXT(num, "message here");
@@ -60,7 +56,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     // webSocket.broadcastTXT("message here");
     break;
   case WStype_BIN:
-    USE_SERIAL.printf("[%u] get binary length: %u\n", num, length);
+    Serial.printf("[%u] get binary length: %u\n", num, length);
 
     // send message to client
     // webSocket.sendBIN(num, payload, length);
@@ -77,9 +73,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 void setup()
 {
   Serial.begin(115200);
-
-  Serial.println("HX711 Demo");
-
   Serial.println("Initializing the scale");
 
   // Initialize library with data output pin, clock input pin and gain factor.
@@ -93,7 +86,7 @@ void setup()
   scale.set_scale(); // this value is obtained by calibrating the scale with known weights; see the README for details
   scale.tare();      // reset the scale to 0
   printf("\nCALIBRATE NOW\n");
-  delay(4000);
+  delay(5000);
   scale.set_scale(scale.get_units(10) / 1000);
   printf("\nCalibration complete.\n");
 
@@ -140,22 +133,22 @@ void loop()
   {
     motor2_speed = 127;
   }
-
   setMotorSpeed(motor1_speed, motor1);
   setMotorSpeed(motor2_speed, motor2);
 
-  // Serial.printf("Motor1: %d \t Motor2: %d \n\r", motor1_speed, motor2_speed);
-
-  Serial.printf("one reading:\t");
-  Serial.printf("%lf", scale.get_units(), 1);
-  Serial.printf("\t| average:\t");
-  Serial.printf("%lf\n\r", scale.get_units(10), 1);
+  if (iteration == 5)
+  {
+    Serial.printf("one reading:\t");
+    Serial.printf("%lf", scale.get_units(), 1);
+    Serial.printf("\t| average:\t");
+    Serial.printf("%lf\n\r", scale.get_units(10), 1);
+  }
 
   scale.power_down(); // put the ADC in sleep mode
   delay(500);
   scale.power_up();
 
-  if (iteration > 5)
+  if (iteration > sizeof(force_measurements) / sizeof(force_measurements[0]) - 1)
   {
     iteration = 0;
     JsonDocument doc;
@@ -175,8 +168,8 @@ void loop()
   else
   {
     force_measurements[iteration] = scale.get_units(10);
+    iteration++;
   }
 
-  iteration++;
   webSocket.loop();
 }
