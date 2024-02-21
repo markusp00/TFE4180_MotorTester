@@ -3,6 +3,7 @@
 #include "HX711.h"
 #include <WiFi.h>
 #include <WebSocketsServer.h>
+#include <ArduinoJson.h>
 
 // HX711 circuit wiring
 const int LOADCELL_DOUT_PIN = 2;
@@ -32,22 +33,6 @@ int motor2_speed = 0;
 WebSocketsServer webSocket = WebSocketsServer(81);
 #define USE_SERIAL Serial1
 
-void hexdump(const void *mem, uint32_t len, uint8_t cols = 16)
-{
-  const uint8_t *src = (const uint8_t *)mem;
-  USE_SERIAL.printf("\n[HEXDUMP] Address: 0x%08X len: 0x%X (%d)", (ptrdiff_t)src, len, len);
-  for (uint32_t i = 0; i < len; i++)
-  {
-    if (i % cols == 0)
-    {
-      USE_SERIAL.printf("\n[0x%08X] 0x%08X: ", (ptrdiff_t)src, i);
-    }
-    USE_SERIAL.printf("%02X ", *src);
-    src++;
-  }
-  USE_SERIAL.printf("\n");
-}
-
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 {
 
@@ -76,7 +61,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     break;
   case WStype_BIN:
     USE_SERIAL.printf("[%u] get binary length: %u\n", num, length);
-    hexdump(payload, length);
 
     // send message to client
     // webSocket.sendBIN(num, payload, length);
@@ -140,6 +124,9 @@ void setup()
   webSocket.onEvent(webSocketEvent);
 }
 
+int iteration = 0;
+float force_measurements[5];
+
 void loop()
 {
   motor1_speed++;
@@ -168,5 +155,28 @@ void loop()
   delay(500);
   scale.power_up();
 
+  if (iteration > 5)
+  {
+    iteration = 0;
+    JsonDocument doc;
+    // Add values in the document
+    doc["i"] = iteration;
+    // Add an array
+    JsonArray measurement_array = doc["force_measurements"].to<JsonArray>();
+    for (size_t i = 0; i < 5; i++)
+    {
+      measurement_array.add(force_measurements[i]);
+    }
+
+    String serialized_json;
+    serializeJson(doc, serialized_json);
+    webSocket.broadcastTXT(serialized_json);
+  }
+  else
+  {
+    force_measurements[iteration] = scale.get_units(10);
+  }
+
+  iteration++;
   webSocket.loop();
 }
