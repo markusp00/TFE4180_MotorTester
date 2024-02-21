@@ -167,7 +167,8 @@ void loop()
   }
   else
   {
-    force_measurements[iteration] = scale.get_units(10);
+    // force_measurements[iteration] = scale.get_units(10);
+    force_measurements[iteration] = random(0, 60);
     iteration++;
   }
 
