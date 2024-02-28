@@ -42,6 +42,12 @@ int run_benchmark = 0;
 int benchmark_duration;
 time_t benchmark_start;
 time_t current_time;
+int iteration = 0;
+
+int sensor_current = 0;
+int sensor_voltage = 0;
+float current = 0;
+float voltage = 0;
 
 WebSocketsServer webSocket = WebSocketsServer(81);
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
@@ -54,6 +60,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     setMotorSpeed(0, motor2);
     scale.power_down(); // put the ADC in sleep mode
     run_benchmark = 0;
+    iteration = 0;
     break;
   case WStype_CONNECTED:
   {
@@ -81,6 +88,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
         setMotorSpeed(0, motor2);
         scale.power_down(); // put the ADC in sleep mode
         run_benchmark = 0;
+        iteration = 0;
       }
       else if (strcmp(command, "start") == 0)
       {
@@ -169,7 +177,6 @@ void setup()
   webSocket.onEvent(webSocketEvent);
 }
 
-int iteration = 0;
 ForceMeasurement force_measurements[1];
 
 void loop()
@@ -190,6 +197,17 @@ void loop()
     return;
   }
 
+  ForceMeasurement force_measurement = {
+      time(NULL) - benchmark_start,
+      scale.get_units(10),
+  };
+  force_measurements[iteration] = force_measurement;
+  sensor_voltage = analogRead(9);
+  sensor_current = analogRead(10);
+  voltage = sensor_voltage * (3.3 / 4095);
+  current = sensor_current * (3.3 / 4095);
+
+  iteration++;
   if (iteration > sizeof(force_measurements) / sizeof(force_measurements[0]) - 1)
   {
     iteration = 0;
@@ -202,17 +220,11 @@ void loop()
       nested_object["force"] = force_measurements[i].force;
     }
 
+    doc["voltage"] = voltage;
+    doc["current"] = current;
+
     String serialized_json;
     serializeJson(doc, serialized_json);
     webSocket.broadcastTXT(serialized_json);
-  }
-  else
-  {
-    ForceMeasurement force_measurement = {
-        time(NULL) - benchmark_start,
-        scale.get_units(10),
-    };
-    force_measurements[iteration] = force_measurement;
-    iteration++;
   }
 }
