@@ -32,6 +32,12 @@ Motor motor2{BLDC2_PIN, 0, BLDC2_CHAN, 0, BLDC_FREQ, MOTOR_TYPE_BLDC};
 int motor1_speed = 0;
 int motor2_speed = 0;
 
+typedef struct ForceMeasurement
+{
+  long time;
+  float force;
+} ForceMeasurement;
+
 int run_benchmark = 0;
 int benchmark_duration;
 time_t benchmark_start;
@@ -44,6 +50,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   {
   case WStype_DISCONNECTED:
     Serial.printf("[%u] Disconnected!\n", num);
+    setMotorSpeed(0, motor1);
+    setMotorSpeed(0, motor2);
+    scale.power_down(); // put the ADC in sleep mode
+    run_benchmark = 0;
     break;
   case WStype_CONNECTED:
   {
@@ -67,11 +77,15 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
       const char *command = doc["command"];
       if (strcmp(command, "stop") == 0)
       {
+        setMotorSpeed(0, motor1);
+        setMotorSpeed(0, motor2);
+        scale.power_down(); // put the ADC in sleep mode
         run_benchmark = 0;
       }
       else if (strcmp(command, "start") == 0)
       {
         run_benchmark = 1;
+        scale.power_up(); // Wake up the ADC
       }
       Serial.printf("[%u] get command: %s\n", num, command);
     }
@@ -95,7 +109,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   break;
   case WStype_BIN:
     Serial.printf("[%u] get binary length: %u\n", num, length);
-
     // send message to client
     // webSocket.sendBIN(num, payload, length);
     break;
@@ -127,6 +140,7 @@ void setup()
   delay(5000);
   scale.set_scale(scale.get_units(10) / 1000);
   printf("\nCalibration complete.\n");
+  scale.power_down(); // put the ADC in sleep mode
 
   motorInit(motor1);
   motorInit(motor2);
@@ -156,7 +170,7 @@ void setup()
 }
 
 int iteration = 0;
-float force_measurements[5];
+ForceMeasurement force_measurements[1];
 
 void loop()
 {
@@ -164,52 +178,28 @@ void loop()
   current_time = time(NULL);
   if (current_time - benchmark_start > benchmark_duration && run_benchmark == 1)
   {
+    printf("Benchmark finished\n");
+    webSocket.broadcastTXT("Benchmark finished");
+    setMotorSpeed(0, motor1);
+    setMotorSpeed(0, motor2);
+    scale.power_down(); // put the ADC in sleep mode
     run_benchmark = 0;
   }
   if (run_benchmark == 0)
   {
-    setMotorSpeed(0, motor1);
-    setMotorSpeed(0, motor2);
     return;
   }
-
-  motor1_speed++;
-  motor2_speed--;
-  if (motor1_speed > 127)
-  {
-    motor1_speed = -127;
-  }
-
-  if (motor2_speed < -127)
-  {
-    motor2_speed = 127;
-  }
-  setMotorSpeed(motor1_speed, motor1);
-  setMotorSpeed(motor2_speed, motor2);
-
-  if (iteration == 5)
-  {
-    Serial.printf("one reading:\t");
-    Serial.printf("%lf", scale.get_units(), 1);
-    Serial.printf("\t| average:\t");
-    Serial.printf("%lf\n\r", scale.get_units(10), 1);
-  }
-
-  scale.power_down(); // put the ADC in sleep mode
-  delay(500);
-  scale.power_up();
 
   if (iteration > sizeof(force_measurements) / sizeof(force_measurements[0]) - 1)
   {
     iteration = 0;
     JsonDocument doc;
-    // Add values in the document
-    doc["i"] = iteration;
-    // Add an array
     JsonArray measurement_array = doc["force_measurements"].to<JsonArray>();
-    for (size_t i = 0; i < 5; i++)
+    for (size_t i = 0; i < sizeof(force_measurements) / sizeof(force_measurements[0]); i++)
     {
-      measurement_array.add(force_measurements[i]);
+      JsonObject nested_object = measurement_array.add<JsonObject>();
+      nested_object["time"] = force_measurements[i].time;
+      nested_object["force"] = force_measurements[i].force;
     }
 
     String serialized_json;
@@ -218,8 +208,11 @@ void loop()
   }
   else
   {
-    // force_measurements[iteration] = scale.get_units(10);
-    force_measurements[iteration] = random(0, 60);
+    ForceMeasurement force_measurement = {
+        time(NULL) - benchmark_start,
+        scale.get_units(10),
+    };
+    force_measurements[iteration] = force_measurement;
     iteration++;
   }
 }
