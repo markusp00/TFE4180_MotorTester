@@ -4,6 +4,8 @@
 #include <WiFi.h>
 #include <WebSocketsServer.h>
 #include <ArduinoJson.h>
+#include <stdio.h>
+#include <time.h>
 
 // HX711 circuit wiring
 const int LOADCELL_DOUT_PIN = 2;
@@ -30,11 +32,14 @@ Motor motor2{BLDC2_PIN, 0, BLDC2_CHAN, 0, BLDC_FREQ, MOTOR_TYPE_BLDC};
 int motor1_speed = 0;
 int motor2_speed = 0;
 
-WebSocketsServer webSocket = WebSocketsServer(81);
+int run_benchmark = 0;
+int benchmark_duration;
+time_t benchmark_start;
+time_t current_time;
 
+WebSocketsServer webSocket = WebSocketsServer(81);
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 {
-
   switch (type)
   {
   case WStype_DISCONNECTED:
@@ -47,14 +52,47 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   }
   break;
   case WStype_TEXT:
-    Serial.printf("[%u] get Text: %s\n", num, payload);
+  {
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, payload);
+    if (error)
+    {
+      Serial.print(F("deserializeJson() failed: "));
+      Serial.println(error.f_str());
+      return;
+    }
 
-    // send message to client
+    if (doc.containsKey("command"))
+    {
+      const char *command = doc["command"];
+      if (strcmp(command, "stop") == 0)
+      {
+        run_benchmark = 0;
+      }
+      else if (strcmp(command, "start") == 0)
+      {
+        run_benchmark = 1;
+      }
+      Serial.printf("[%u] get command: %s\n", num, command);
+    }
+
+    if (doc.containsKey("motor1_speed") && doc.containsKey("motor2_speed"))
+    {
+      motor1_speed = doc["motor1_speed"];
+      motor2_speed = doc["motor2_speed"];
+      Serial.printf("[%u] get motorspeed: %d\n", num, motor1_speed);
+    }
+
+    if (doc.containsKey("benchmark_duration"))
+    {
+      benchmark_duration = doc["benchmark_duration"];
+      Serial.printf("[%u] get duration: %d\n", num, benchmark_duration);
+    }
+
     // webSocket.sendTXT(num, "message here");
-
-    // send data to all connected clients
-    // webSocket.broadcastTXT("message here");
-    break;
+    benchmark_start = time(NULL);
+  }
+  break;
   case WStype_BIN:
     Serial.printf("[%u] get binary length: %u\n", num, length);
 
@@ -94,7 +132,7 @@ void setup()
   motorInit(motor2);
 
   setMotorSpeed(0, motor1);
-  setMotorSpeed(0, motor1);
+  setMotorSpeed(0, motor2);
 
   const char *ssid = "MATEBOOK5667";
   const char *password = "8gB341?4";
@@ -122,6 +160,19 @@ float force_measurements[5];
 
 void loop()
 {
+  webSocket.loop();
+  current_time = time(NULL);
+  if (current_time - benchmark_start > benchmark_duration && run_benchmark == 1)
+  {
+    run_benchmark = 0;
+  }
+  if (run_benchmark == 0)
+  {
+    setMotorSpeed(0, motor1);
+    setMotorSpeed(0, motor2);
+    return;
+  }
+
   motor1_speed++;
   motor2_speed--;
   if (motor1_speed > 127)
@@ -171,6 +222,4 @@ void loop()
     force_measurements[iteration] = random(0, 60);
     iteration++;
   }
-
-  webSocket.loop();
 }
