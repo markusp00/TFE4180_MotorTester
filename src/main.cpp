@@ -56,8 +56,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   {
   case WStype_DISCONNECTED:
     Serial.printf("[%u] Disconnected!\n", num);
-    setMotorSpeed(0, motor1);
-    setMotorSpeed(0, motor2);
+    setMotorSpeed(-127, motor1);
+    setMotorSpeed(-127, motor2);
     scale.power_down(); // put the ADC in sleep mode
     run_benchmark = 0;
     iteration = 0;
@@ -84,8 +84,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
       const char *command = doc["command"];
       if (strcmp(command, "stop") == 0)
       {
-        setMotorSpeed(0, motor1);
-        setMotorSpeed(0, motor2);
+        setMotorSpeed(-127, motor1);
+        setMotorSpeed(-127, motor2);
         scale.power_down(); // put the ADC in sleep mode
         run_benchmark = 0;
         iteration = 0;
@@ -102,6 +102,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     {
       motor1_speed = doc["motor1_speed"];
       motor2_speed = doc["motor2_speed"];
+      setMotorSpeed(motor1_speed, motor1);
+      setMotorSpeed(motor2_speed, motor2);
       Serial.printf("[%u] get motorspeed: %d\n", num, motor1_speed);
     }
 
@@ -131,20 +133,6 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 
 void setup()
 {
-  motorInit(motor1);
-  motorInit(motor2);
-  // setMotorSpeed(0, motor1);
-  setMotorSpeed(0, motor2);
-
-  for (int i = 0; i <= 127; i++)
-  {
-    // setMotorSpeed(i, motor1);
-    setMotorSpeed(i, motor2);
-    delay(1000);
-  }
-
-  delay(5000);
-
   Serial.begin(115200);
   Serial.println("Initializing the scale");
 
@@ -183,6 +171,13 @@ void setup()
 
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
+
+  motorInit(motor1);
+  setMotorSpeed(-126, motor1);
+
+  motorInit(motor2);
+  setMotorSpeed(-127, motor2);
+  delay(8000);
 }
 
 ForceMeasurement force_measurements[1];
@@ -195,8 +190,8 @@ void loop()
   {
     printf("Benchmark finished\n");
     webSocket.broadcastTXT("Benchmark finished");
-    setMotorSpeed(0, motor1);
-    setMotorSpeed(0, motor2);
+    setMotorSpeed(-127, motor1);
+    setMotorSpeed(-127, motor2);
     scale.power_down(); // put the ADC in sleep mode
     run_benchmark = 0;
   }
