@@ -27,6 +27,9 @@ HX711 scale;
 // Calibration values
 #define VOLTAGE_GAIN 0.0148
 #define VOLTAGE_OFFSET 0.922
+#define WEIGHT_GAIN -0.0040870148
+#define WEIGHT_OFFSET -44.4443418099
+#define WEIGHT_CALIBRATION -1249022.0 / 5000.0
 
 // Motor structs setup
 Motor motor1{BLDC1_PIN, 0, BLDC1_CHAN, 0, BLDC_FREQ, MOTOR_TYPE_BLDC};
@@ -147,13 +150,9 @@ void setup()
   // By omitting the gain factor parameter, the library
   // default "128" (Channel A) is used here.
   scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
-
   scale.set_scale(); // this value is obtained by calibrating the scale with known weights; see the README for details
   scale.tare();      // reset the scale to 0
-  printf("\nCALIBRATE NOW\n");
-  delay(5000);
-  scale.set_scale(scale.get_units(10) / 1000);
-  printf("\nCalibration complete.\n");
+  scale.set_scale(WEIGHT_CALIBRATION);
   scale.power_down(); // put the ADC in sleep mode
 
   const char *ssid = "MATEBOOK5667";
