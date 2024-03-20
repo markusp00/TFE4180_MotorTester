@@ -24,6 +24,10 @@ HX711 scale;
 #define BLDC1_CHAN 1
 #define BLDC2_CHAN 2
 
+// Calibration values
+#define VOLTAGE_GAIN 0.0148
+#define VOLTAGE_OFFSET 0.922
+
 // Motor structs setup
 Motor motor1{BLDC1_PIN, 0, BLDC1_CHAN, 0, BLDC_FREQ, MOTOR_TYPE_BLDC};
 Motor motor2{BLDC2_PIN, 0, BLDC2_CHAN, 0, BLDC_FREQ, MOTOR_TYPE_BLDC};
@@ -205,7 +209,7 @@ void loop()
   sensor_voltage = analogRead(9);
   sensor_current = analogRead(10);
   printf("Voltage: %d, Current: %d\n", sensor_voltage, sensor_current);
-  voltage = sensor_voltage * 0.0148 + 0.922; // Convertion to volts using values measured during calibration
+  voltage = sensor_voltage * VOLTAGE_GAIN + VOLTAGE_OFFSET; // Convertion to volts using values measured during calibration
   current = sensor_current * (3.3 / 4095);
 
   iteration++;
