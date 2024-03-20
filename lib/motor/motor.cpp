@@ -43,6 +43,7 @@ void motorInit(Motor motor)
   // BLDC
   if (motor.motorType == MOTOR_TYPE_BLDC)
   {
+    setMotorSpeed(-127, motor);
     Serial.printf("BLDC ");
   }
 

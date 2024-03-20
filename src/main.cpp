@@ -44,8 +44,8 @@ time_t benchmark_start;
 time_t current_time;
 int iteration = 0;
 
-int sensor_current = 0;
-int sensor_voltage = 0;
+uint16_t sensor_current = 0;
+uint16_t sensor_voltage = 0;
 float current = 0;
 float voltage = 0;
 
@@ -173,10 +173,7 @@ void setup()
   webSocket.onEvent(webSocketEvent);
 
   motorInit(motor1);
-  setMotorSpeed(-126, motor1);
-
   motorInit(motor2);
-  setMotorSpeed(-127, motor2);
   delay(8000);
 }
 
@@ -207,7 +204,8 @@ void loop()
   force_measurements[iteration] = force_measurement;
   sensor_voltage = analogRead(9);
   sensor_current = analogRead(10);
-  voltage = sensor_voltage * (3.3 / 4095);
+  printf("Voltage: %d, Current: %d\n", sensor_voltage, sensor_current);
+  voltage = sensor_voltage * 0.0148 + 0.922; // Convertion to volts using values measured during calibration
   current = sensor_current * (3.3 / 4095);
 
   iteration++;
