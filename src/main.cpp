@@ -8,14 +8,14 @@
 #include <time.h>
 
 // HX711 circuit wiring
-const int LOADCELL_DOUT_PIN = 2;
-const int LOADCELL_SCK_PIN = 1;
+const int LOADCELL_DOUT_PIN = 4;
+const int LOADCELL_SCK_PIN = 5;
 
 HX711 scale;
 
 // Pins
-#define BLDC1_PIN 35
-#define BLDC2_PIN 36
+#define BLDC1_PIN 6
+#define BLDC2_PIN 7
 
 // Frequencies
 #define BLDC_FREQ 50
@@ -131,6 +131,20 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 
 void setup()
 {
+  motorInit(motor1);
+  motorInit(motor2);
+  // setMotorSpeed(0, motor1);
+  setMotorSpeed(0, motor2);
+
+  for (int i = 0; i <= 127; i++)
+  {
+    // setMotorSpeed(i, motor1);
+    setMotorSpeed(i, motor2);
+    delay(1000);
+  }
+
+  delay(5000);
+
   Serial.begin(115200);
   Serial.println("Initializing the scale");
 
@@ -149,12 +163,6 @@ void setup()
   scale.set_scale(scale.get_units(10) / 1000);
   printf("\nCalibration complete.\n");
   scale.power_down(); // put the ADC in sleep mode
-
-  motorInit(motor1);
-  motorInit(motor2);
-
-  setMotorSpeed(0, motor1);
-  setMotorSpeed(0, motor2);
 
   const char *ssid = "MATEBOOK5667";
   const char *password = "8gB341?4";
