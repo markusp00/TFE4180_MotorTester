@@ -25,6 +25,8 @@ HX711 scale;
 #define BLDC2_CHAN 2
 
 // Calibration values
+#define CURRENT_GAIN 0.0289
+#define CURRENT_OFFSET 2.7182
 #define VOLTAGE_GAIN 0.0148
 #define VOLTAGE_OFFSET 0.922
 #define WEIGHT_GAIN -0.0040870148
@@ -190,23 +192,21 @@ void loop()
   sensor_current = analogRead(10);
   printf("Voltage: %d, Current: %d\n", sensor_voltage, sensor_current);
   voltage = sensor_voltage * VOLTAGE_GAIN + VOLTAGE_OFFSET; // Convertion to volts using values measured during calibration
-  current = sensor_current * (3.3 / 4095);
+  current = sensor_current * CURRENT_GAIN + CURRENT_OFFSET; // Convertion to amps using values measured during calibration
 
   if (run_benchmark == 0)
   {
-    JsonDocument doc;
-    JsonArray measurement_array = doc["force_measurements"].to<JsonArray>();
-    for (size_t i = 0; i < sizeof(force_measurements) / sizeof(force_measurements[0]); i++)
+    static unsigned long lastUpdateTime = 0;
+    if (current_time - lastUpdateTime >= 1)
     {
-      JsonObject nested_object = measurement_array.add<JsonObject>();
-      nested_object["time"] = 0;
-      nested_object["force"] = 0;
+      lastUpdateTime = current_time;
+      JsonDocument doc;
+      doc["voltage"] = voltage;
+      doc["current"] = current;
+      String serialized_json;
+      serializeJson(doc, serialized_json);
+      webSocket.broadcastTXT(serialized_json);
     }
-    doc["voltage"] = voltage;
-    doc["current"] = current;
-    String serialized_json;
-    serializeJson(doc, serialized_json);
-    webSocket.broadcastTXT(serialized_json);
     return;
   }
   else if (current_time - benchmark_start > benchmark_duration)
