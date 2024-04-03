@@ -186,7 +186,30 @@ void loop()
 {
   webSocket.loop();
   current_time = time(NULL);
-  if (current_time - benchmark_start > benchmark_duration && run_benchmark == 1)
+  sensor_voltage = analogRead(9);
+  sensor_current = analogRead(10);
+  printf("Voltage: %d, Current: %d\n", sensor_voltage, sensor_current);
+  voltage = sensor_voltage * VOLTAGE_GAIN + VOLTAGE_OFFSET; // Convertion to volts using values measured during calibration
+  current = sensor_current * (3.3 / 4095);
+
+  if (run_benchmark == 0)
+  {
+    JsonDocument doc;
+    JsonArray measurement_array = doc["force_measurements"].to<JsonArray>();
+    for (size_t i = 0; i < sizeof(force_measurements) / sizeof(force_measurements[0]); i++)
+    {
+      JsonObject nested_object = measurement_array.add<JsonObject>();
+      nested_object["time"] = 0;
+      nested_object["force"] = 0;
+    }
+    doc["voltage"] = voltage;
+    doc["current"] = current;
+    String serialized_json;
+    serializeJson(doc, serialized_json);
+    webSocket.broadcastTXT(serialized_json);
+    return;
+  }
+  else if (current_time - benchmark_start > benchmark_duration)
   {
     printf("Benchmark finished\n");
     webSocket.broadcastTXT("Benchmark finished");
@@ -194,9 +217,6 @@ void loop()
     setMotorSpeed(-127, motor2);
     scale.power_down(); // put the ADC in sleep mode
     run_benchmark = 0;
-  }
-  if (run_benchmark == 0)
-  {
     return;
   }
 
@@ -205,11 +225,6 @@ void loop()
       scale.get_units(10),
   };
   force_measurements[iteration] = force_measurement;
-  sensor_voltage = analogRead(9);
-  sensor_current = analogRead(10);
-  printf("Voltage: %d, Current: %d\n", sensor_voltage, sensor_current);
-  voltage = sensor_voltage * VOLTAGE_GAIN + VOLTAGE_OFFSET; // Convertion to volts using values measured during calibration
-  current = sensor_current * (3.3 / 4095);
 
   iteration++;
   if (iteration > sizeof(force_measurements) / sizeof(force_measurements[0]) - 1)
