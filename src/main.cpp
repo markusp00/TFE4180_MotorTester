@@ -40,6 +40,7 @@ Motor motor2{BLDC2_PIN, 0, BLDC2_CHAN, 0, BLDC_FREQ, MOTOR_TYPE_BLDC};
 // Variables to store motor speeds
 int motor1_speed = 0;
 int motor2_speed = 0;
+float target_wattage = 0;
 
 typedef struct ForceMeasurement
 {
@@ -65,6 +66,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
   {
   case WStype_DISCONNECTED:
     Serial.printf("[%u] Disconnected!\n", num);
+    motor1_speed = -127;
+    motor2_speed = -127;
     setMotorSpeed(-127, motor1);
     setMotorSpeed(-127, motor2);
     scale.power_down(); // put the ADC in sleep mode
@@ -93,6 +96,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
       const char *command = doc["command"];
       if (strcmp(command, "stop") == 0)
       {
+        motor1_speed = -127;
+        motor2_speed = -127;
         setMotorSpeed(-127, motor1);
         setMotorSpeed(-127, motor2);
         scale.power_down(); // put the ADC in sleep mode
@@ -107,13 +112,14 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
       Serial.printf("[%u] get command: %s\n", num, command);
     }
 
-    if (doc.containsKey("motor1_speed") && doc.containsKey("motor2_speed"))
+    if (doc.containsKey("target_wattage"))
     {
-      motor1_speed = doc["motor1_speed"];
-      motor2_speed = doc["motor2_speed"];
+      motor1_speed = -50;
+      motor2_speed = -50;
+      target_wattage = doc["target_wattage"];
       setMotorSpeed(motor1_speed, motor1);
       setMotorSpeed(motor2_speed, motor2);
-      Serial.printf("[%u] get motorspeed: %d\n", num, motor1_speed);
+      Serial.printf("[%u] get target_wattage: %d\n", num, target_wattage);
     }
 
     if (doc.containsKey("benchmark_duration"))
@@ -220,9 +226,34 @@ void loop()
     return;
   }
 
+  if (voltage * current > target_wattage * 1.02)
+  {
+    motor1_speed -= 1;
+    motor2_speed -= 1;
+    if (motor1_speed < -127)
+    {
+      motor1_speed = -127;
+      motor2_speed = -127;
+    }
+  }
+  else if (voltage * current < target_wattage * 0.98)
+  {
+    motor1_speed += 1;
+    motor2_speed += 1;
+  }
+  {
+    if (motor1_speed > 127)
+    {
+      motor1_speed = 127;
+      motor2_speed = 127;
+    }
+  }
+  setMotorSpeed(motor1_speed, motor1);
+  setMotorSpeed(motor2_speed, motor2);
+
   ForceMeasurement force_measurement = {
       time(NULL) - benchmark_start,
-      scale.get_units(10),
+      scale.get_units(1),
   };
   force_measurements[iteration] = force_measurement;
 
