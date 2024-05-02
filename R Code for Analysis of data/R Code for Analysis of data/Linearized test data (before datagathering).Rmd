@@ -1,0 +1,300 @@
+---
+title: "Test propellor exp"
+author: "Ole Gunnar Røsholt Hovland"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,tidy=TRUE,message=FALSE,warning=FALSE,strip.white=TRUE,prompt=FALSE,
+                      cache=TRUE, size="scriptsize",fig.width=4, fig.height=3,fig.align = "center")
+```
+
+## Create mock data
+
+We linearise the following model $$
+\text{force} = (2 \times \exp(-0.05 \times (\text{propeller_distance} + 3)^2)) \times \exp(-0.3 \times (1 - \text{air_pressure})) \\ \times \text{rnorm}(n, \text{mean} = 1, \text{sd} = 0.2)
+$$ Into the following: $$\ln(\text{force}) = \ln(2) - 0.05 \times (\text{propeller_distance} + 3)^2 - 0.3 \times (1 - \text{air_pressure}) \\+ \ln(\text{rnorm}(n, \text{mean} = 1, \text{sd} = 0.2))$$
+
+```{r}
+# Load necessary library
+library(mgcv)
+
+# Simulating some mock data
+set.seed(123) # For reproducibility
+n <- 100 # Number of observations
+
+# Independent variables
+air_pressure <- runif(n, min = 0.01, max = 1) # Air pressure from 0.01 to 1 atm
+propeller_distance <- runif(n, min = -8, max = 10) # Distance from -8 to +10
+
+# Simulate some nonlinear relationships for the mock response
+force <- (2 * exp(-0.05 * (propeller_distance + 3)^2)) * exp(-1.5 * (1 - air_pressure))
+
+# Add some noise to force to simulate measurement or process variability
+force <- force * rnorm(n, mean = 1, sd = 0.2) # multiplicative error
+
+# Combine into a data frame
+data <- data.frame(air_pressure, propeller_distance, force)
+#data$force <- abs(data$force) # Cant have negative values
+data$logforce <- log(data$force)
+head(data)
+```
+
+## 2d GAM plots
+
+```{r}
+library(ggplot2)
+
+# Plotting logforce vs air pressure
+ggplot(data, aes(x = I(air_pressure), y = logforce)) +
+  geom_point() +
+  geom_smooth(method = 'gam', formula = y ~ s(x), method.args = list(family = "gaussian")) +
+  theme_minimal() +
+  labs(title = "logForce vs. Air Pressure", x = "Air Pressure (atm)", y = "logForce")
+
+# Plotting logforce vs propeller distance
+ggplot(data, aes(x = I(propeller_distance), y = logforce)) +
+  geom_point() +
+  geom_smooth(method = 'gam', formula = y ~ s(x), method.args = list(family = "gaussian")) +
+  theme_minimal() +
+  labs(title = "logForce vs. Propeller Distance", x = "Propeller Distance (cm)", y = "logForce")
+
+# Plotting force vs air pressure
+ggplot(data, aes(x = I(air_pressure), y = force)) +
+  geom_point() +
+  geom_smooth(method = 'gam', formula = y ~ s(x), method.args = list(family = "gaussian")) +
+  theme_minimal() +
+  labs(title = "Force vs. Air Pressure", x = "Air Pressure (atm)", y = "Force")
+
+# Plotting force vs propeller distance
+ggplot(data, aes(x = I(propeller_distance), y = force)) +
+  geom_point() +
+  geom_smooth(method = 'gam', formula = y ~ s(x), method.args = list(family = "gaussian")) +
+  theme_minimal() +
+  labs(title = "Force vs. Air Pressure", x = "Air Pressure (atm)", y = "Force")
+
+```
+
+## GAM model analysis
+
+```{r}
+# Fit a GAM model with splines
+model <- gam(logforce ~ s(air_pressure, k = 20) + s(I(propeller_distance), k = 20), data = data)
+
+# Summary of the model
+summary(model)
+
+# Plotting the effects of the GAM model
+plot(model, pages = 1, all.terms = TRUE, se = TRUE, scale = 0)
+```
+
+## Plotting data in 3d
+
+```{r}
+# #install.packages("plotly", dependencies = true)
+# library(htmltools)
+# library(plotly)
+# 
+# # creating a 3d plot
+# fig <- plot_ly(data, x = ~propeller_distance, y = ~air_pressure, z = ~force, type = 'scatter3d', mode = 'markers',
+#                marker = list(size = 5, color = force, colorscale = 'viridis', opacity = 0.8)) %>%
+#   layout(title = "3d plot of force vs. propeller distance and air pressure",
+#          scene = list(xaxis = list(title = 'propeller distance (cm)'),
+#                       yaxis = list(title = 'air pressure (atm)'),
+#                       zaxis = list(title = 'force')))
+# 
+# # display the plot
+# fig
+
+
+```
+
+## Creating a linear model
+
+```{r}
+log_lm <- lm(logforce ~ air_pressure + I((propeller_distance+3)^2), data = data)
+summary(log_lm)
+plot(log_lm)
+
+aic_lm <- AIC(log_lm)
+bic_lm <- BIC(log_lm)
+```
+
+We see from these plots that despite all looking good in the table, the variance does not seem to be linear, AKA the data is heteroscedastic.
+
+## Addressing heteroscedasticity with GLM
+
+### Gamma distribution
+
+```{r}
+glm_model_gamma <- glm(force ~ air_pressure + I((propeller_distance+3)^2), family = Gamma(link = "log"), data = data)
+summary(glm_model_gamma)
+plot(glm_model_gamma)
+
+data$predicted_force <- predict(glm_model_gamma, type="response")
+
+ggplot(data, aes(x=air_pressure)) + 
+  geom_point(aes(y=force), color="blue", alpha=0.5) + 
+  geom_point(aes(y=predicted_force), color="red", alpha=0.5) + 
+  labs(x="Air Pressure", y="Force", title="Actual vs. Predicted Force") + 
+  theme_minimal()
+```
+
+Everything in the summary looks good but:
+
+-   The range of deviance residuals suggests some spread in the data that the model may not fully capture
+
+-   The residual deviance still indicates that there's unexplained variance in the data by the current model.
+
+-   A lower AIC indicates a better model when comparing models.
+
+### Inverse Gaussian distribution
+
+```{r}
+glm_model_invgauss <- glm(force ~ air_pressure + I((propeller_distance+3)^2), family = inverse.gaussian(link = "log"), data = data)
+summary(glm_model_invgauss)
+plot(glm_model_invgauss)
+
+data$predicted_force <- predict(glm_model_invgauss, type="response")
+
+scaling_factor = 0.7
+# Diagnostic scale adjustment (not a final solution)
+data$predicted_force_adjusted <- data$predicted_force / scaling_factor
+
+
+ggplot(data, aes(x=air_pressure)) + 
+  geom_point(aes(y=force), color="blue", alpha=0.5) + 
+  geom_point(aes(y=predicted_force_adjusted), color="red", alpha=0.5) + 
+  labs(x="Air Pressure", y="Force", title="Actual vs. Predicted Force") + 
+  theme_minimal()
+```
+
+## Gamma vs Inverse Gauss
+
+```{r}
+glm_model_inv_gauss <- glm_model_invgauss # rename
+aic_gamma <- AIC(glm_model_gamma)
+aic_inv_gauss <- AIC(glm_model_inv_gauss)
+bic_gamma <- BIC(glm_model_gamma)
+bic_inv_gauss <- BIC(glm_model_inv_gauss)
+
+# Print the results to compare
+cat("Linear Model AIC:", aic_lm, "\nGamma Model AIC:", aic_gamma, "\nInverse Gaussian Model AIC:", aic_inv_gauss, "\n")
+cat("Linear Model BIC:", bic_lm, "\nGamma Model BIC:", bic_gamma, "\nInverse Gaussian Model BIC:", bic_inv_gauss, "\n")
+
+# Generate predictions
+data$pred_gamma <- predict(glm_model_gamma, type="response")
+data$pred_inv_gauss <- predict(glm_model_inv_gauss, type="response")
+
+data$pred_inv_gauss_mod <- data$pred_inv_gauss/scaling_factor
+# Plot actual vs. predicted values
+library(ggplot2)
+
+ggplot(data, aes(x=air_pressure)) +
+  geom_point(aes(y=force), color="black", alpha=0.5, size=1.5, shape=1) +
+  geom_line(aes(y=pred_gamma), color="blue", size=1) +
+  geom_line(aes(y=pred_inv_gauss_mod), color="red", size=1) +
+  labs(x="Air Pressure", y="Force", title="Model Comparison: Actual vs. Predicted Force") +
+  theme_minimal() +
+  scale_color_manual(values=c("blue"="Gamma Model", "red"="Inverse Gaussian Model")) +
+  theme(legend.position="bottom")
+
+# Calculate residuals
+data$resid_gamma <- data$force - data$pred_gamma
+data$resid_inv_gauss <- data$force - data$pred_inv_gauss/scaling_factor
+
+# Plot residuals
+ggplot(data) +
+  geom_histogram(aes(x=resid_gamma), fill="blue", alpha=0.5, bins=30) +
+  geom_histogram(aes(x=resid_inv_gauss), fill="red", alpha=0.5, bins=30) +
+  labs(x="Residuals", y="Frequency", title="Residuals Distribution Comparison") +
+  theme_minimal() +
+  scale_fill_manual(values=c("blue"="Gamma Model", "red"="Inverse Gaussian Model"))
+```
+
+The BIC/AIC is much lower for the Gamma model, implying that this model is explaining the data good enough. We therefore conclude that the Gamma distribution is superior.
+
+## Model Recreation
+
+```{r}
+library(ggplot2)
+
+# Example propeller distances to examine
+propeller_distances <- seq(min(data$propeller_distance), max(data$propeller_distance), length.out = 4) # Adjust based on 
+
+# Generate a grid of air pressure values for prediction
+air_pressures <- seq(min(data$air_pressure), max(data$air_pressure), length.out = 100)
+
+# Prepare a data frame for predictions
+new_data <- expand.grid(air_pressure = air_pressures, propeller_distance = propeller_distances)
+
+# Predict force for each combination of air_pressure and propeller_distance
+new_data$predicted_force <- predict(glm_model_gamma, newdata = new_data, type = "response")
+
+# Plotting
+ggplot(new_data, aes(x = air_pressure, y = I(predicted_force), group = propeller_distance, color = as.factor(propeller_distance))) +
+  geom_line() +
+  labs(x = "Air Pressure", y = "Predicted Force", title = "Predicted Force vs. Air Pressure for Different Propeller Distances") +
+  scale_color_viridis_d(name = "Propeller Distance") +
+  theme_minimal()
+
+```
+
+```{r}
+library(ggplot2)
+
+# Example air pressures to examine
+air_pressures <- seq(min(data$air_pressure), max(data$air_pressure), length.out = 4) # Adjust based on your data
+
+# Generate a grid of propeller distance values for prediction
+propeller_distances <- seq(min(data$propeller_distance), max(data$propeller_distance), length.out = 100)
+
+# Prepare a data frame for predictions
+new_data <- expand.grid(air_pressure = air_pressures, propeller_distance = propeller_distances)
+
+# Predict force for each combination of air_pressure and propeller_distance
+new_data$predicted_force <- predict(glm_model_gamma, newdata = new_data, type = "response")
+
+# Plotting
+ggplot(new_data, aes(x = propeller_distance, y = predicted_force, group = air_pressure, color = as.factor(air_pressure))) +
+  geom_line() +
+  labs(x = "Propeller Distance", y = "Predicted Force", title = "Predicted Force vs. Propeller Distance for Different Air Pressures") +
+  scale_color_viridis_d(name = "Air Pressure") +
+  theme_minimal()
+
+```
+
+```{r}
+# Example air pressure values
+air_pressures_example <- c(1.0, 0.5, 1)
+
+# Create a new data frame for predictions
+propeller_distances <- seq(min(data$propeller_distance), max(data$propeller_distance), length = 100)
+predictions_df <- expand.grid(propeller_distance = propeller_distances, air_pressure = air_pressures_example)
+
+# Predict on the link (log) scale including standard errors
+predictions_log_scale <- predict(glm_model_gamma, newdata = predictions_df, type = "link", se.fit = TRUE)
+
+# Generate predictions
+predictions_df$predicted_force <- predict(glm_model_gamma, newdata = predictions_df, type = "response")
+
+# Calculate confidence intervals on the log scale
+ci_width <- qnorm(0.975) * predictions_log_scale$se.fit
+lower_log <- predictions_log_scale$fit - ci_width
+upper_log <- predictions_log_scale$fit + ci_width
+
+# Transform confidence intervals back to the original scale
+predictions_df$lower_bound <- exp(lower_log)
+predictions_df$upper_bound <- exp(upper_log)
+
+# Plotting
+ggplot(predictions_df, aes(x = propeller_distance)) +
+  geom_line(aes(y = predicted_force, color = as.factor(air_pressure))) +
+  geom_ribbon(aes(ymin = lower_bound, ymax = upper_bound, fill = as.factor(air_pressure)), alpha = 0.2) +
+  scale_color_viridis_d(name = "Air Pressure") +
+  scale_fill_viridis_d(name = "Air Pressure", guide = FALSE) +
+  labs(x = "Propeller Distance", y = "Predicted Force", title = "Predicted Force vs. Propeller Distance\nfor Different Air Pressures with Confidence Intervals") +
+  theme_minimal()
+
+```

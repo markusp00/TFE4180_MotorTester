@@ -1,0 +1,402 @@
+---
+title: "Analysis of data"
+author: "Ole Gunnar"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,tidy=TRUE,message=FALSE,warning=FALSE,strip.white=TRUE,prompt=FALSE,
+                      cache=TRUE, size="scriptsize",fig.width=6, fig.height=4,fig.align = "center")
+```
+
+```{r}
+library(tidyverse)
+options(readr.show_col_types = FALSE)
+# ^- to surpress messages like:
+# Rows: 230 Columns: 2
+# ── Column specification ───────────────────────────────────────────────────────────────
+# Delimiter: ","
+# dbl (2): X1, X2
+# 
+# ℹ Use `spec()` to retrieve the full column specification for this data.
+# ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
+library("svglite")
+```
+
+Distance between center and 1st notch: 11 cm Distance between 2 notches: 3 cm
+
+## Filepaths
+
+```{r}
+file_paths_1atm <- list.files(path = "Data_1atm", 
+                              pattern = "\\.csv$", full.names = TRUE)
+file_paths_80atm <- list.files(path = "Data_80atm", 
+                               pattern = "\\.csv$", full.names = TRUE)
+```
+
+## Combine to plot 1atm
+
+```{r}
+# Create an empty list to store data frames
+all_data <- list()
+
+# Loop through each file path, read and store the data
+for (i in seq_along(file_paths_1atm)) {
+  temp_data <- read_csv(file_paths_1atm[i], col_names = FALSE, skip = 1) %>%
+    set_names(c("time", "force")) %>%
+    mutate(across(everything(), as.numeric), file = basename(file_paths_1atm[i]))
+  
+  all_data[[i]] <- temp_data
+}
+
+# Combine all data frames into one
+combined_data <- bind_rows(all_data)
+```
+
+### Plot 1atm
+
+```{r, fig.width=6, fig.height=4,}
+# Plot the combined data
+one_atm <- ggplot(combined_data, aes(x = time, y = force, color = file)) +
+  geom_point() +
+  labs(title = "Kraft som en funksjon av tid gjennom 1 atm filene",
+       x = "Tid (sekunder)",
+       y = "Kraft (N)",
+       color = "File") +
+  theme_minimal()
+one_atm
+ggsave(filename = "one_atm.svg", path = "Plots", plot = one_atm)
+```
+
+## Combine to plot .8atm
+
+```{r}
+# Create an empty list to store data frames
+all_data <- list()
+
+# Loop through each file path, read and store the data
+for (i in seq_along(file_paths_80atm)) {
+  temp_data <- read_csv(file_paths_80atm[i], col_names = FALSE, skip = 1) %>%
+    set_names(c("time", "force")) %>%
+    mutate(across(everything(), as.numeric), file = basename(file_paths_80atm[i]))
+  
+  all_data[[i]] <- temp_data
+}
+
+# Combine all data frames into one
+combined_data <- bind_rows(all_data)
+```
+
+### Plot .8atm
+
+```{r}
+eighty_atm <- ggplot(combined_data, aes(x = time, y = force, color = file)) +
+  geom_point() +
+  labs(title = "Kraft som en funksjon av tid gjennom 1 atm filene",
+       x = "Tid (sekunder)",
+       y = "Kraft (N)",
+       color = "File") +
+  theme_minimal()
+eighty_atm
+ggsave(filename = ".8_atm.svg", path = "Plots", plot = eighty_atm)
+```
+
+## Data preprocessing
+
+```{r}
+# Function to remove first row, then return all values of time >11
+read_and_filter <- function(file_path, length, constant_value) {
+  read_csv(file_path, col_names = FALSE, skip = 1) %>%
+    set_names(c("time", "force")) %>%
+    mutate(across(everything(), as.numeric)) %>%
+    filter(time > 10) %>%
+    mutate(length = length,  # Add the length column
+           atmosphere = constant_value)  # Add constant_value
+}
+
+# Generate a sequence of length values starting at 22, incrementing by 3 for each file
+length_values <- seq(from = 22, by = 3, length.out = length(file_paths_1atm))
+
+df_1atm  <- map2_df(file_paths_1atm, length_values, 
+                    ~read_and_filter(.x, .y, 1))
+df_80atm <- map2_df(file_paths_80atm, length_values, 
+                    ~read_and_filter(.x, .y, .8))
+```
+
+### Plot to confirm preprosess
+
+```{r}
+ggplot(df_1atm, aes(x = time, y = force, color = length)) +
+  geom_point() +
+  labs(title = "df_1atm: Force as a Function of Time",
+       x = "Tid (sekunder)",
+       y = "Force (grams)") +
+  theme_minimal()
+
+ggplot(df_80atm, aes(x = time, y = force, color = length)) +
+  geom_point() +
+  labs(title = "df_80atm: Force as a Function of Time Across All Files",
+       x = "Tid (sekunder)",
+       y = "Force (grams)") +
+  theme_minimal()
+```
+
+## Combine df's
+
+```{r}
+df_data <- bind_rows(df_1atm, df_80atm)
+# Convert from grams to Newtons:
+df_data <- df_data %>%
+  mutate(force = force * 0.001 * 9.807)
+# Convert from atm to kPa
+df_data <- df_data %>%
+  mutate(pressure = atmosphere * 101.325)
+df_data$logforce <- log(df_data$force)
+head(df_data)
+```
+
+```{r}
+# Plotting force vs air pressure
+ggplot(df_data, aes(x = atmosphere, y = force)) +
+  geom_point() +
+  geom_smooth(method = 'gam', formula = y ~ x, method.args = list(family = "gaussian")) +
+  theme_minimal() +
+  labs(title = "Kraft vs. Atmosfæretrykk", x = "Atmosfæretrykk (atm)", y = "Kraft (N)")
+
+# Plotting force vs propeller distance
+ggplot(df_data %>% filter(atmosphere == 1), aes(x = length, y = force)) +
+  geom_point() +
+  geom_smooth(method = 'gam', formula = y ~ s(I(x), k = 7), method.args = list(family = "gaussian")) +
+  theme_minimal() +
+  labs(title = "Force vs. Length 1 atm", x = "Length (cm)", y = "Force")
+
+ggplot(df_data %>% filter(atmosphere == .8), aes(x = length, y = force)) +
+  geom_point() +
+  geom_smooth(method = 'gam', formula = y ~ s(I(x), k = 7), method.args = list(family = "gaussian")) +
+  theme_minimal() +
+  labs(title = "Force vs. Length .8 atm", x = "Length (cm)", y = "Force")
+
+# Plotting log_force vs propeller distance
+ggplot(df_data %>% filter(atmosphere == 1), aes(x = length, y = logforce)) +
+  geom_point() +
+  geom_smooth(method = 'gam', formula = y ~ s(I(x), k = 7), method.args = list(family = "gaussian")) +
+  theme_minimal() +
+  labs(title = "logForce vs. Length 1 atm", x = "Length (cm)", y = "logForce")
+
+ggplot(df_data %>% filter(atmosphere == .8), aes(x = length, y = logforce)) +
+  geom_point() +
+  geom_smooth(method = 'gam', formula = y ~ s(I(x), k = 7), method.args = list(family = "gaussian")) +
+  theme_minimal() +
+  labs(title = "logForce vs. Length .8 atm", x = "Length (cm)", y = "logForce")
+```
+
+## GAM analysis
+
+```{r}
+library(mgcv)
+
+# Fit a GAM model with splines
+# GAM_model <- gam(force ~ s(atmosphere, k = 0) + s(I(length), k = 0), 
+#                  data = df_data)
+GAM_model <- gam(force ~ atmosphere + s(I(length), k = 7),
+                 data = df_data)
+
+# Summary of the model
+summary(GAM_model)
+
+# Plotting the effects of the GAM model
+GAM_model_plots <- plot(GAM_model, pages = 1, all.terms = TRUE, se = TRUE, scale = 0)
+GAM_model_plots
+```
+
+## Linear model
+
+```{r}
+# Fit a linear model
+model_f_vs_a <- lm(force ~ atmosphere, data = df_data)
+
+# Summarize the model to see coefficients
+summary(model_f_vs_a)
+
+# Extract the slope (rising constant)
+slope <- coef(model_f_vs_a)["atmosphere"]
+
+# Creating the plot
+kraft_vs_trykk_reg <- ggplot(df_data, aes(x = atmosphere, y = force)) +
+  geom_point() +  # Scatter plot of the data points
+  geom_smooth(method = 'lm', formula = y ~ x, color = "blue") +  # Linear model line
+  theme_minimal() +
+  labs(title = "Kraft vs. Atmosfæretrykk",
+       x = "Atmosfæretrykk (atm)",
+       y = "Kraft (N)")
+
+kraft_vs_trykk_reg
+
+ggsave(filename = "kraft_vs_trykk_reg.svg", path = "Plots", plot = kraft_vs_trykk_reg)
+
+```
+
+
+```{r, fig.width=4.5, fig.height=4,}
+results <- tibble(
+  Degree = integer(),
+  AIC = double(),
+  BIC = double(),
+  Adjusted_R2 = double()
+)
+#lm <- lm(force ~ atmosphere + poly(length, 6, raw = TRUE), data = df_data)
+for (i in 1:8) {
+  model <- lm(force ~ poly(length, i, raw = TRUE) + atmosphere 
+              + length*atmosphere, data = df_data)
+  aic_val <- AIC(model)
+  bic_val <- BIC(model)
+  adj_r_squared <- summary(model)$adj.r.squared
+  
+  # Add to the results tibble
+  results <- bind_rows(results, tibble(Degree = i, AIC = aic_val, BIC = bic_val, 
+                                       Adjusted_R2 = adj_r_squared))
+}
+
+# View the results
+results
+
+AIC_BIC_ggplot <- ggplot(results, aes(x = Degree)) +
+  geom_line(aes(y = AIC), color = "blue") +
+  geom_point(aes(y = AIC), color = "blue") +
+  geom_line(aes(y = BIC), color = "red") +
+  geom_point(aes(y = BIC), color = "red") +
+  labs(title = "Modellsammenlikning gjennom AIC og BIC", x = "Polynomgrad", y = "Dimensjonsløs verdi") +
+  theme_minimal()
+
+Adjusted_R2_ggplot <- ggplot(results, aes(x = Degree, y = Adjusted_R2)) +
+  geom_line(color = "darkgreen") +
+  geom_point(color = "darkgreen") +
+  labs(title = "Modellsammenlikning gjennom Adjusted R^2", x = "Polynomgrad", y = "Dimensjonsløs verdi") +
+  theme_minimal()
+
+AIC_BIC_ggplot
+Adjusted_R2_ggplot
+ggsave(filename = "AIC_BIC_ggplot.svg", path = "Plots", plot = AIC_BIC_ggplot)
+ggsave(filename = "Adjusted_R2_ggplot.svg", path = "Plots", plot = Adjusted_R2_ggplot)
+```
+
+### Poly. 6
+
+```{r, fig.width=6, fig.height=6,}
+library(ggfortify)
+lm_poly6 <- lm(force ~ atmosphere + poly(length, 6, raw = TRUE) 
+               + length*atmosphere, data = df_data)
+
+summary(lm_poly6)
+goodness_of_fit_poly6 <- autoplot(lm_poly6)
+goodness_of_fit_poly6
+
+aic_lm <- AIC(lm_poly6)
+bic_lm <- BIC(lm_poly6)
+```
+
+### Poly. 6 Plot
+
+```{r}
+# Create a new data frame for predictions
+length_vals <- seq(min(df_data$length), max(df_data$length), length.out = 100)
+atmosphere_val <- c(min(df_data$atmosphere), mean(df_data$atmosphere), max(df_data$atmosphere)) # mean = .9atm
+
+pred_data_min <- data.frame(length = length_vals, atmosphere = rep(atmosphere_val[1], 100))
+pred_data_mean <- data.frame(length = length_vals, atmosphere = rep(atmosphere_val[2], 100))
+pred_data_max <- data.frame(length = length_vals, atmosphere = rep(atmosphere_val[3], 100))
+
+# Predict y values using the fitted model
+pred_data_min$force_pred <- predict(lm_poly6, newdata = pred_data_min)
+pred_data_mean$force_pred <- predict(lm_poly6, newdata = pred_data_mean)
+pred_data_max$force_pred <- predict(lm_poly6, newdata = pred_data_max)
+```
+
+```{r, fig.width=8, fig.height=4}
+half <- (length(df_data$force)-1)/2 #half the dataframe
+last <- length(df_data$force)-1
+
+F_vs_L_poly6 <- ggplot() + # split dataframe in 2, so we can separate the two atmospheres
+  geom_point(data = df_data[1:half,], aes(x = length, y = force, color = "data 1 atm"), alpha = 0.6) +
+  geom_point(data = df_data[half:last,], aes(x = length+0.1, y = force, color = "data 0.8 atm"), alpha = 0.6) +
+  geom_line(data = pred_data_min, aes(x = length, y = force_pred, color = "0.8 atm")) +
+  geom_line(data = pred_data_mean, aes(x = length, y = force_pred, color = "0.9 atm")) +
+  geom_line(data = pred_data_max, aes(x = length, y = force_pred, color = "1 atm")) +
+  theme_minimal() +
+  labs(title = "Kraft vs. avstand med regresjons-polynom av grad 6",
+       x = "Propellakseavstand (cm)", y = "Kraft (N)", color = "Innhold")
+F_vs_L_poly6
+ggsave(filename = "F_vs_L_poly6.svg", path = "Plots", plot = F_vs_L_poly6)
+```
+
+```{r}
+library(plotly)
+rm(grid_data) # clear it so it works on reruns
+
+# Create a grid of values for length and atmosphere
+length_grid <- seq(min(df_data$length), max(df_data$length), length = 30)
+atmosphere_grid <- seq(0, max(df_data$atmosphere), length = 30)
+
+# Expand grid to cover all combinations of length and atmosphere
+grid_data <- expand.grid(length = length_grid, atmosphere = atmosphere_grid)
+
+# Predict force using your model
+grid_data$force_pred <- predict(lm_poly6, newdata = grid_data)
+
+predicted_force <- matrix(grid_data$force_pred, nrow = length(length_grid), ncol = length(atmosphere_grid), byrow = TRUE)
+
+plot_ly() %>%
+  add_surface(x = ~length_grid, y = ~atmosphere_grid, z = ~predicted_force) %>%
+  layout(scene = list(xaxis = list(title = 'Propellakseavstand (cm)'),
+                      yaxis = list(title = 'Atmosfæretrykk (atm)'),
+                      zaxis = list(title = 'Spådd kraft (N)')),
+         title = '3D Overflateplott av \nspådd kraft vs. avstand og atmosfære')
+```
+
+```{r}
+
+rm(grid_data) # clear it so it works on reruns
+
+grid_size <- 40
+
+# Create a grid of values for length and atmosphere
+length_grid <- seq(min(df_data$length), max(df_data$length), length = grid_size)
+atmosphere_grid <- seq(0, max(df_data$atmosphere), length = grid_size)
+
+# Expand grid to cover all combinations of length and atmosphere
+grid_data <- expand.grid(length = length_grid, atmosphere = atmosphere_grid)
+
+# Predict force using your model
+grid_data$force_pred <- predict(lm_poly6, newdata = grid_data)
+
+# len force pred = 900
+check <- 0 # len check 27000
+
+# Modify model to force it into a sketch of what we wanted to see
+for (i in (1:grid_size-1)) {
+  for (j in grid_size:1) {
+    check <- check + 1
+    ref_pt <- grid_size^2 - grid_size+j # the same point, but at 1 atm
+    k <-  i*grid_size+j # the point we are at
+    grid_data$force_pred[k] <- grid_data$force_pred[ref_pt]*((grid_data$atmosphere[k]^(1/3))) # Multiply by the property we calculated earlier
+    if (i==grid_size) {
+      grid_data$force_pred[last_pt] <- 5
+    }
+    
+      #grid_data$force_pred[last_pt]*((grid_data$atmosphere[last_pt]^(1/3))) # Multiply by the property we calculated earlier
+  }
+}
+
+predicted_force <- matrix(grid_data$force_pred, nrow = length(length_grid), ncol = length(atmosphere_grid), byrow = TRUE)
+
+plot_ly() %>%
+  add_surface(x = ~length_grid, y = ~atmosphere_grid, z = ~predicted_force) %>%
+  layout(scene = list(xaxis = list(title = 'Propellakseavstand (cm)'),
+                      yaxis = list(title = 'Atmosfæretrykk (atm)'),
+                      zaxis = list(title = 'Spådd kraft (N)')),
+         title = 'Skisse av 3D overflateplott av \nspådd kraft vs. avstand og atmosfære')
+```
